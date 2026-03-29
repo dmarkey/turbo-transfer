@@ -108,6 +108,7 @@ def status():
     table.add_column("Value")
 
     table.add_row("Interface", info["interface"] or "[red]Not found[/red]")
+    table.add_row("Transport", info.get("transport") or "[red]None[/red]")
     table.add_row("Local IPv6", info["local_ipv6"] or "[red]None[/red]")
     table.add_row(
         "Link",
