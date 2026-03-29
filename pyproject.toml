@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-turbo = "turbo_transfer.cli:main"
+turbo-transfer = "turbo_transfer.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
