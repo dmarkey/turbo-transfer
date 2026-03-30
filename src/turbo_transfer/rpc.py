@@ -77,6 +77,7 @@ class ConnectionPool:
         self._size = size
         self._created = 0
         self._create_lock = threading.Lock()
+        self._closed = False
 
     def _create_connection(self) -> RpcConnection:
         addr_info = socket.getaddrinfo(
@@ -100,6 +101,9 @@ class ConnectionPool:
 
     def get(self) -> RpcConnection:
         """Get a connection from the pool (blocking if needed)."""
+        if self._closed:
+            raise RpcError(errno.EIO, "Pool is shut down")
+
         # Try to get an existing idle connection
         try:
             return self._pool.get_nowait()
@@ -110,13 +114,23 @@ class ConnectionPool:
         with self._create_lock:
             if self._created < self._size:
                 self._created += 1
-                return self._create_connection()
+                try:
+                    return self._create_connection()
+                except (ConnectionError, OSError):
+                    self._created -= 1
+                    raise RpcError(errno.EIO, "Connection failed")
 
         # All connections busy — wait for one to be returned
-        return self._pool.get(timeout=30)
+        try:
+            return self._pool.get(timeout=30)
+        except queue.Empty:
+            raise RpcError(errno.EIO, "Connection pool exhausted")
 
     def put(self, conn: RpcConnection):
         """Return a connection to the pool."""
+        if self._closed:
+            conn.close()
+            return
         try:
             self._pool.put_nowait(conn)
         except queue.Full:
@@ -124,6 +138,7 @@ class ConnectionPool:
 
     def close_all(self):
         """Drain and close all connections."""
+        self._closed = True
         while True:
             try:
                 conn = self._pool.get_nowait()
@@ -134,7 +149,7 @@ class ConnectionPool:
 
 def rpc_call(pool: ConnectionPool, op: FsOp, payload: dict, compress: bool = False) -> dict:
     """Convenience: get connection, make RPC call, return connection to pool."""
-    conn = pool.get()
+    conn = pool.get()  # May raise RpcError if pool is shut down
     try:
         result = conn.request(op, payload, compress=compress)
         pool.put(conn)

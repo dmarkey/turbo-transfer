@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import platform
+import signal
 import subprocess
 import sys
 
@@ -38,6 +39,17 @@ def serve(directory: str, port: int):
         asyncio.run(start_server(directory))
     except KeyboardInterrupt:
         console.print("\n[dim]Stopped.[/dim]")
+
+
+def _do_unmount(mountpoint: str):
+    """Unmount a FUSE filesystem."""
+    try:
+        if platform.system() == "Darwin":
+            subprocess.run(["umount", mountpoint], capture_output=True)
+        else:
+            subprocess.run(["fusermount", "-u", mountpoint], capture_output=True)
+    except Exception:
+        pass
 
 
 @main.command()
@@ -74,10 +86,16 @@ def mount(mountpoint: str, peer: str | None):
     console.print(f"[green]Mounting at [bold]{abs_mountpoint}[/bold][/green]")
     console.print("[dim]Press Ctrl+C to unmount[/dim]")
 
+    def _unmount_on_signal(signum, frame):
+        console.print("\n[dim]Unmounting...[/dim]")
+        pool.close_all()
+        _do_unmount(abs_mountpoint)
+
+    signal.signal(signal.SIGINT, _unmount_on_signal)
+    signal.signal(signal.SIGTERM, _unmount_on_signal)
+
     try:
         mount_remote(pool, abs_mountpoint, foreground=True)
-    except KeyboardInterrupt:
-        console.print("\n[dim]Unmounting...[/dim]")
     finally:
         pool.close_all()
 
